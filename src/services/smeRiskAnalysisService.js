@@ -1,14 +1,85 @@
 const { normalizeCounterpartyName } = require('../utils/normalizeCounterparty');
 const { deduplicateCounterparty } = require('../utils/fuzzyDedup');
 
-const { calculateConcentrationScore, getRecommedation } = require('../utils/scoring')
+const { calculateConcentrationScore, getRecommendation } = require('../utils/scoring')
 
 function analyzeBankStatement(rows) {
+    // Step 1: Clean and normalize rows
     const cleanedRows = cleanRows(rows);
 
     if (!cleanedRows.length) {
-        throw new Error("No valid transactions found in the CSV.");
+        throw new Error("No valid transactions found in CSV.");
     }
+
+    // Step 2: Separate inflows and outflows
+    const inflows = cleanedRows.filter((row) => row.amount_aed > 0);
+
+    const outflows = cleanedRows.filter((row) => row.amount_aed < 0);
+
+    // Step 3: Generate counterparty reports
+    const topInflowCounterparties = buildCounterpartyReport(inflows).slice(0, 10);
+
+    const topOutflowCounterparties = buildCounterpartyReport(outflows).slice(0, 10);
+
+    // Step 4: Calculate concentration metrics
+    const top1InflowPercentage = topInflowCounterparties[0]?.percentage_of_total || 0;
+
+    const top3InflowPercentage = topInflowCounterparties
+    .slice(0, 3)
+    .reduce(
+      (sum, counterparty) =>
+        sum + counterparty.percentage_of_total,
+      0
+    );
+
+    const topOutflow = topOutflowCounterparties[0];
+
+    const top1OutflowPct = topOutflow?.percentage_of_total || 0;
+
+    // Step 5: Build concentration flags
+    const hasSingleInflowFlag = top1InflowPercentage > 40;
+
+    const hasHighOutflowFlag = topOutflow && top1OutflowPct > 30 && !isSalaryOrRent(topOutflow.normalized_name);
+
+    const hasIntercompanyFlag = hasIntercompanyFlow(topInflowCounterparties, topOutflowCounterparties);
+
+    // Step 6: Analyze inflow concentration trend over time
+    const inflowConcentrationTrend = calculateInflowConcentrationTrend(inflows);
+
+    const hasIncreasingInflowTrend = inflowConcentrationTrend.trend === "increasing";
+
+    // Step 7: Create concentration flags array
+    const concentrationFlags = buildConcentrationFlags({
+        top1InflowPercentage,
+        top3InflowPercentage,
+        topOutflow,
+        hasSingleInflowFlag,
+        hasHighOutflowFlag,
+        hasIntercompanyFlag,
+        inflowConcentrationTrend
+    });
+
+    // Step 8: Calculate concentration score
+    const concentrationScore = calculateConcentrationScore({
+        top1InflowPercentage,
+        top3InflowPercentage,
+        hasHighOutflowFlag,
+        hasIntercompanyFlag,
+        hasIncreasingInflowTrend,
+    });
+
+    // Step 9: Generate recommendation
+    const recommendation = getRecommendation(concentrationScore, concentrationFlags);
+
+    // Step 10: Final response object
+    return {
+        top_inflow_counterparties: topInflowCounterparties,
+        top_outflow_counterparties: topOutflowCounterparties,
+        concentration_flags: concentrationFlags,
+        inflow_concentration_trend: inflowConcentrationTrend,
+        concentration_score: concentrationScore,
+        recommendation: recommendation
+  };
 }
 
 function cleanRows(rows) {
@@ -16,7 +87,7 @@ function cleanRows(rows) {
 
     return rows.map((row) => {
         // Normalize the counterparty name and handle missing values
-        const rawName = row.counterpart_raw || "";
+        const rawName = row.counterparty_raw || "";
         const normalizedName = normalizeCounterpartyName(rawName);
 
         // Deduplicate the normalized name against previously seen names
@@ -103,12 +174,14 @@ function buildCounterpartyReport(rows) {
         percentage_of_total: round(totalVolume === 0 ? 0 : (counterparty.total_volume_aed / totalVolume) * 100),
         count: counterparty.count,
         first_date: counterparty.first_date.toISOString().slice(0, 10),
-        last_date: counterparty.last_date.toISSOString().slice(0, 10)
+        last_date: counterparty.last_date.toISOString().slice(0, 10)
     })).sort((a, b) => b.total_volume_aed - a.total_volume_aed);
 }
 
 
 function calculateInflowConcentrationTrend(inflows) {
+
+    // Return default response if no inflow data is present
     if (!inflows.length) {
         return {
             trend: "no_inflows",
@@ -119,6 +192,7 @@ function calculateInflowConcentrationTrend(inflows) {
         };
     }
 
+    // Group inflows month-wise
     const monthlyGroups = {}
 
     inflows.forEach((row) => {
@@ -131,8 +205,9 @@ function calculateInflowConcentrationTrend(inflows) {
         monthlyGroups[month].push(row);
     });
 
+    // Calculate top counterparty concentration for each month
     const monthlyTop1Concentration = Object.entries(monthlyGroups)
-        .map((month, rows) => {
+        .map(([month, rows]) => {
             const report = buildCounterpartyReport(rows);
             const top1Percentage = report[0]?.percentage_of_total || 0;
 
@@ -143,15 +218,19 @@ function calculateInflowConcentrationTrend(inflows) {
             };
         }).sort((a, b) => a.month.localeCompare(b.month));
     
+    // Get first and last month data for trend comparison
     const firstPeriod = monthlyTop1Concentration[0];
     const lastPeriod = monthlyTop1Concentration[monthlyTop1Concentration.length - 1];
     
-    const firstPercentage = firstPeriod?.top1Percentage_of_inflows || 0;
+    const firstPercentage = firstPeriod?.top1_percentage_of_inflows || 0;
     const lastPercentage = lastPeriod?.top1_percentage_of_inflows || 0;
+
+    // Difference in concentration percentage
     const change = round(lastPercentage - firstPercentage)
 
     let trend = "stable";
 
+    // Decide trend based on percentage change
     if (change > 10) {
         trend = "increasing";
     } else if (change < -10) {
@@ -175,31 +254,37 @@ function buildConcentrationFlags({
     hasSingleInflowFlag,
     hasSingleOutflowFlag,
     hasIntercompanyFlag,
+    hasHighOutflowFlag,
     inflowConcentrationTrend,
 }) {
 
     const flags = [];
 
+    // Flag if one inflow counterparty contributes too much
     if (hasSingleInflowFlag) {
-        flags.push("Single inflow counterparty exceeeds 40% of total inflows")
+        flags.push("Single inflow counterparty exceeds 40% of total inflows")
     }
 
+    // Flag if top 3 inflow counterparties are highly concentrated
     if (top3InflowPercentage > 70) {
-        flags.push("Top 3 inflow counterparties exceeds 70% of total inflows.")
+        flags.push("Top 3 inflow counterparties exceed 70% of total inflows.")
     }
 
+    // Flag if one outflow counterparty is too high, excluding salary/rent
     if (hasHighOutflowFlag) {
         flags.push(
             `Single outflow counterparty '${topOutflow.normalized_name}' exceeds 30% excluding salary/rent.`
         )
     }
 
+    // Flag if inflow concentration is increasing over time
     if (inflowConcentrationTrend.trend == "increasing") {
         flags.push(
             `Inflow concentration increased by ${inflowConcentrationTrend.change_percentage_points} percentage points over period.`
         )
     }
 
+    // Flag suspected circular/intercompany flow
     if(hasIntercompanyFlag) {
         flags.push("Suspected intercompany or cicular flow detected");
     }
@@ -207,16 +292,19 @@ function buildConcentrationFlags({
     return flags;
 }
 
-function hasInterCompanyFlow(topInflowCounterparties, topOutflowCounterparties) {
+function hasIntercompanyFlow(topInflowCounterparties, topOutflowCounterparties) {
+    // Store all top inflow counterparty names
     const inflowNames = new Set(
         topInflowCounterparties.map((counterparty) => counterparty.normalized_name)
-    )
+    );
 
+    // Store all top outflow counterparty names
     const outflowNames = new Set(
-         topOutflowCounterparties.map((counterparty) => counterparty.normalized_name)
-    )
+        topOutflowCounterparties.map((counterparty) => counterparty.normalized_name)
+    );
 
-    for (const name in inflowNames) {
+    // Check if same counterparty exists in both inflows and outflows
+    for (const name of inflowNames) {
         if (outflowNames.has(name)) {
             return true;
         }
@@ -225,12 +313,18 @@ function hasInterCompanyFlow(topInflowCounterparties, topOutflowCounterparties) 
     return false;
 }
 
+// Checks whether counterparty name is related to salary or rent
 function isSalaryOrRent(name) {
     const keywords = ["salary", "payroll", "rent", "lease"];
     return keywords.some((keyword) => name.includes(keyword))
 }
 
-export default { 
+// Rounding the Number to fixed 2 decimed places
+function round(value) {
+  return Number((value || 0).toFixed(2));
+}
+
+module.exports = {
     analyzeBankStatement,
     calculateInflowConcentrationTrend,
 };
