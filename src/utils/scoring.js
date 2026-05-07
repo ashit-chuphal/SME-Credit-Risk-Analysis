@@ -6,34 +6,46 @@ function calculateConcentrationScore({
     hasIntercompanyFlag,
     hasIncreasingInflowTrendFlag
 }) {
-    // total score is 100, we will deduct points based on the severity of the concentration risk factors
-    let score = 100;
+    // total score is 0, we will add points based on the severity of the concentration risk factors
+    let score = 0;
     
-    // deduct points based on the percentage of inflows concentrated in the top 1, 3, and 10 sources
-    if (top1InflowPercentage > 40) score -= 20;
-    if (top3InflowPercentage > 70) score -= 20;
-    if (hasSingleInflowFlag) score -= 10;
-    if (hasHighOutflowFlag) score -= 10;
-    if (hasIntercompanyFlag) score -= 10;
-    if (hasIncreasingInflowTrendFlag) score -= 10;
+    // Assessment rule:
+    // 0 = well diversified, 100 = decline / highly concentrated
 
-    return Math.max(0, Math.min(1000, score));
+    // Heavy dependency on one inflow counterparty
+    if (top1InflowPercentage > 70) score += 40;
+    if (top1InflowPercentage > 40) score += 30;
+    
+    // Top 3 inflow concentration
+    if (top3InflowPercentage > 80) score += 25;
+    else if (top3InflowPercentage > 70)score += 20;
+
+    // Outflow concentration excluding salary/rent
+    if (hasHighOutflowFlag) score += 15;
+    
+    // Suspected intercompany/circular flows
+    if (hasIntercompanyFlag) score += 15;
+    
+    // Concentration getting worse over time
+    if (hasIncreasingInflowTrendFlag) score += 10;
+
+     return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 function getRecommendation(score, flags) {
     // based on the score, we can provide a recommendation for credit approval
 
     // if the score is below 40, we recommend declining the credit application due to high concentration risk
-    if (score < 40) {
+    if (score >= 75) {
         return {
             decision: "decline",
-            justification: "High counterparty concentration creates elevated repayment dependency risk, which can lead to cash flow issues and potential default."
+            justification: "Counterparty concentration is very high, creating elevated repayment dependency risk."
         };
     }
 
 
     // if the score is between 40 and 70, we recommend further investigation to understand the nature of the concentration and potential mitigation strategies
-    if (score < 70 || flags.length > 0) {
+    if (score >= 30 || flags.length > 0) {
         return {
             decision: "investigate_concentration",
             justification: "Counterparty concentration requires further review before credit approval."
