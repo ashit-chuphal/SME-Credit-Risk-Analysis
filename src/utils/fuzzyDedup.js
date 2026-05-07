@@ -51,6 +51,5 @@ function deduplicateCounterparty(name, existingNames, threshold = 0.9) {
 }
 
 export default { 
-    similarity,
     deduplicateCounterparty 
 };
