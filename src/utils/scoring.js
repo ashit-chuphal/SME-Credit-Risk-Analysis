@@ -1,10 +1,9 @@
 function calculateConcentrationScore({
     top1InflowPercentage,
     top3InflowPercentage,
-    hasSingleInflowFlag,
     hasHighOutflowFlag,
     hasIntercompanyFlag,
-    hasIncreasingInflowTrendFlag
+    hasIncreasingInflowTrend
 }) {
     // total score is 0, we will add points based on the severity of the concentration risk factors
     let score = 0;
@@ -14,11 +13,11 @@ function calculateConcentrationScore({
 
     // Heavy dependency on one inflow counterparty
     if (top1InflowPercentage > 70) score += 40;
-    if (top1InflowPercentage > 40) score += 30;
+    else if (top1InflowPercentage > 40) score += 30;
     
     // Top 3 inflow concentration
     if (top3InflowPercentage > 80) score += 25;
-    else if (top3InflowPercentage > 70)score += 20;
+    else if (top3InflowPercentage > 70) score += 20;
 
     // Outflow concentration excluding salary/rent
     if (hasHighOutflowFlag) score += 15;
@@ -27,7 +26,7 @@ function calculateConcentrationScore({
     if (hasIntercompanyFlag) score += 15;
     
     // Concentration getting worse over time
-    if (hasIncreasingInflowTrendFlag) score += 10;
+    if (hasIncreasingInflowTrend) score += 10;
 
      return Math.max(0, Math.min(100, Math.round(score)));
 }
