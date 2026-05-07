@@ -1,11 +1,11 @@
 const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
-const csv = require("csv-parses");
+const csv = require("csv-parser");
 const swaggerUi = require("swagger-ui-express");
 const swaggerJsDoc = require("swagger-jsdoc");
 
-const { analyzeBankStatements } = require("./services/smeRiskAnalysisService");
+const { analyzeBankStatement } = require("./services/smeRiskAnalysisService");
 
 const app = express();
 const PORT = 3000;
@@ -24,7 +24,7 @@ const swaggerSpec = swaggerJsDoc({
     apis: ["./src/index.js"],
 });
 
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 /**
  * @swagger
@@ -53,31 +53,94 @@ app.get("/health", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-    res.send("Welcome to the SME Credit Risk Analysis API. Please refer to /api-docs for API documentation.");
+    res.send(`
+    <html>
+      <head>
+        <title>SME Credit Risk Assessment API</title>
+
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+          }
+
+          .container {
+            text-align: center;
+          }
+
+          h1 {
+            margin-bottom: 10px;
+          }
+
+          p {
+            color: #cbd5e1;
+            margin-bottom: 30px;
+          }
+
+          a {
+            text-decoration: none;
+            background: #2563eb;
+            color: white;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 18px;
+          }
+
+          a:hover {
+            background: #1d4ed8;
+          }
+        </style>
+      </head>
+
+      <body>
+        <div class="container">
+          <h1>SME Credit Risk Assessment API</h1>
+
+          <p>
+            Upload SME bank statement CSVs and generate
+            counterparty concentration risk analysis.
+          </p>
+
+          <a href="/docs">
+            Open Swagger UI
+          </a>
+        </div>
+      </body>
+    </html>
+  `);
 });
 
-/** 
+/**
  * @swagger
- * / analyze:
- *  post:
- *   summary: Analyze bank statements endpoint to assess SME credit risk.
- *   requestBody:
- *    required: true
- *   content:
- *    multipart/form-data:
- *     schema:
- *      type: object
- *      properties:
- *        file:
- *         type: string
- *         format: binary
- *  responses:
- *   200:
- *    description: Counterpart concentration report generated successfully.
- *   400:
- *    description: Bad request - invalid file format or CSV file missing.
- *   500:
- *    description: Internal server error - failed to process the file.
+ * /analyze:
+ *   post:
+ *     summary: Analyze bank statements endpoint to assess SME credit risk.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: Upload CSV bank statement file
+ *     responses:
+ *       200:
+ *         description: Counterparty concentration report generated successfully.
+ *       400:
+ *         description: Bad request - invalid file format or CSV file missing.
+ *       500:
+ *         description: Internal server error - failed to process the file.
  */
 app.post("/analyze", upload.single("file"), async (req, res) => {
     
@@ -92,19 +155,28 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
 
         // Read the uploaded CSV file and parse its contents
         fs.createReadStream(req.file.path)
-        pipe(csv())
+        .pipe(csv())
         .on("data", (row) => {
             rows.push(row);
         })
         .on("end", async () => {
-            // Remove the uploaded file after processing
-            fs.unlinkSync(req.file.path);
+            try {
+                fs.unlinkSync(req.file.path);
 
-            // Call the analysis function with the parsed CSV data
-            const analysisResult = await analyzeBankStatements(rows);
-            
-            // Return the analysis result as JSON response
-            res.json(analysisResult);
+                const report = analyzeBankStatement(rows);
+
+                console.log("Rows parsed:", rows.length);
+                console.log("Report generated:", report);
+
+                return res.status(200).json(report);
+            } catch (error) {
+                console.error("Error analyzing CSV:", error);
+                
+                return res.status(500).json({
+                    error: "Failed to analyze bank statement.",
+                    details: error.message
+                });
+            }
         });
     } catch (error) {
 
@@ -116,5 +188,5 @@ app.post("/analyze", upload.single("file"), async (req, res) => {
 
 app.listen(PORT, () => {
     // Log a message to indicate that the server is running
-    console.log(`SME Credit Risk Analysis API is running : https://localhost:${PORT}`);
+    console.log(`SME Credit Risk Analysis API is running : http://localhost:${PORT}`);
 });
