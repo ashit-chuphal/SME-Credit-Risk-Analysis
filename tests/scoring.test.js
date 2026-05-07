@@ -1,40 +1,81 @@
-import { calculateConcentrationScore } from "../src/utils/scoring";
+// tests/scoring.test.js
 
-test("score decreases for high top1 inflow concentration", () => {
-  const score = calculateConcentrationScore({
-    top1InflowPct: 50,
-    top3InflowPct: 60,
-    hasSingleInflowFlag: true,
-    hasHighOutflowFlag: false,
-    hasIntercompanyFlag: false,
-    hasIncreasingInflowTrend: false
+const {
+  calculateConcentrationScore,
+  getRecommendation
+} = require("../src/utils/scoring");
+
+describe("calculateConcentrationScore", () => {
+
+  test("returns low risk score for diversified inflows", () => {
+
+    const score = calculateConcentrationScore({
+      top1InflowPercentage: 20,
+      top3InflowPercentage: 45,
+      hasHighOutflowFlag: false,
+      hasIntercompanyFlag: false,
+      hasIncreasingInflowTrend: false
+    });
+
+    expect(score).toBe(0);
   });
 
-  expect(score).toBeLessThan(100);
+  test("adds risk for high single inflow concentration", () => {
+
+    const score = calculateConcentrationScore({
+      top1InflowPercentage: 69,
+      top3InflowPercentage: 80,
+      hasHighOutflowFlag: false,
+      hasIntercompanyFlag: false,
+      hasIncreasingInflowTrend: false
+    });
+
+    expect(score).toBe(50);
+  });
+
+  test("caps score at 100", () => {
+
+    const score = calculateConcentrationScore({
+      top1InflowPercentage: 95,
+      top3InflowPercentage: 99,
+      hasHighOutflowFlag: true,
+      hasIntercompanyFlag: true,
+      hasIncreasingInflowTrend: true
+    });
+
+    expect(score).toBe(100);
+  });
+
 });
 
-test("score stays high for diversified counterparties", () => {
-  const score = calculateConcentrationScore({
-    top1InflowPct: 20,
-    top3InflowPct: 45,
-    hasSingleInflowFlag: false,
-    hasHighOutflowFlag: false,
-    hasIntercompanyFlag: false,
-    hasIncreasingInflowTrend: false
+describe("getRecommendation", () => {
+
+  test("returns approve_for_committee for low score", () => {
+
+    const result = getRecommendation(10, []);
+
+    expect(result.decision)
+      .toBe("approve_for_committee");
   });
 
-  expect(score).toBe(100);
-});
+  test("returns investigate_concentration for medium risk", () => {
 
-test("score decreases when inflow concentration trend is increasing", () => {
-  const score = calculateConcentrationScore({
-    top1InflowPct: 20,
-    top3InflowPct: 45,
-    hasSingleInflowFlag: false,
-    hasHighOutflowFlag: false,
-    hasIntercompanyFlag: false,
-    hasIncreasingInflowTrend: true
+    const result = getRecommendation(50, [
+      "Single inflow concentration"
+    ]);
+
+    expect(result.decision)
+      .toBe("investigate_concentration");
   });
 
-  expect(score).toBe(90);
+  test("returns decline for very high score", () => {
+
+    const result = getRecommendation(90, [
+      "Very high concentration"
+    ]);
+
+    expect(result.decision)
+      .toBe("decline");
+  });
+
 });
