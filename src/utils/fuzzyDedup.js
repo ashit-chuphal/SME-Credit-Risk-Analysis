@@ -40,9 +40,23 @@ function levenshteinDistance(a, b) {
 }
 
 // Deduplicate a counterparty name against a list of existing names
-function deduplicateCounterparty(name, existingNames, threshold = 0.9) {
+function deduplicateCounterparty(name, existingNames, threshold = 0.8) {
   for (const existing of existingNames) {
-    if (similarity(name, existing) >= threshold) {
+    const nameWords = name.split(" ");
+    const existingWords = existing.split(" ");
+
+    const firstWordMatches = nameWords[0] === existingWords[0];
+
+    const abbreviationMatch =
+      firstWordMatches &&
+      nameWords[1] &&
+      existingWords[1] &&
+      existingWords[1].startsWith(nameWords[1]);
+
+    if (
+      similarity(name, existing) >= threshold ||
+      abbreviationMatch
+    ) {
       return existing;
     }
   }
@@ -50,6 +64,6 @@ function deduplicateCounterparty(name, existingNames, threshold = 0.9) {
   return name;
 }
 
-export default { 
+module.exports = {
     deduplicateCounterparty 
 };
