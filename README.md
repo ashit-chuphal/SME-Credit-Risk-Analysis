@@ -104,7 +104,7 @@ npm run test
 After starting the server, open:
 
 ```text
-http://localhost:3000/api-docs
+http://localhost:3000
 ```
 
 You can directly upload a CSV file and test the API from Swagger UI.
