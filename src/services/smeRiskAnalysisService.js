@@ -34,12 +34,12 @@ function analyzeBankStatement(rows) {
 
     const topOutflow = topOutflowCounterparties[0];
 
-    const top1OutflowPct = topOutflow?.percentage_of_total || 0;
+    const top1OutflowPercentage = topOutflow?.percentage_of_total || 0;
 
     // Step 5: Build concentration flags
     const hasSingleInflowFlag = top1InflowPercentage > 40;
 
-    const hasHighOutflowFlag = topOutflow && top1OutflowPct > 30 && !isSalaryOrRent(topOutflow.normalized_name);
+    const hasHighOutflowFlag = topOutflow && top1OutflowPercentage > 30 && !isSalaryOrRent(topOutflow.normalized_name);
 
     const hasIntercompanyFlag = hasIntercompanyFlow(topInflowCounterparties, topOutflowCounterparties);
 
@@ -101,7 +101,7 @@ function cleanRows(rows) {
         const amount = Number(row.amount);
         const currency = String(row.currency || "AED").toUpperCase();
 
-        // 
+        // Convert amount to AED if its USD and valid, otherwise keep original amount
         const amountAed = currency === "USD" && amount > 0 ? amount * 3.67: amount;
 
         // Return a cleaned and normalized transaction object
